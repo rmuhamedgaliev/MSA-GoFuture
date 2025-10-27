@@ -1,0 +1,93 @@
+@startuml GoFuture_Multitenant_Architecture_C2
+!include <C4/C4_Container>
+
+title GoFuture Мультитенантная Архитектура (C2)
+
+Person(partner_admin, "Partner Admin", "Администратор партнёра")
+Person(partner_user, "Partner User", "Пользователь партнёра")
+Person(super_admin, "Super Admin", "Системный администратор")
+
+System_Boundary(edge, "Edge Layer") {
+    Container(api_gateway, "API Gateway", "Kong", "Routing + Auth")
+}
+
+System_Boundary(iam, "IAM System") {
+    Container(keycloak, "Keycloak", "Identity Provider", "SSO + RBAC")
+    ContainerDb(keycloak_db, "Keycloak DB", "PostgreSQL", "Пользователи, роли")
+}
+
+System_Boundary(tenant_management, "Tenant Management") {
+    Container(tenant_service, "Tenant Service", "Django", "Управление тенантами")
+    ContainerDb(tenant_registry, "Tenant Registry", "PostgreSQL", "Реестр партнёров")
+}
+
+System_Boundary(microservices, "Микросервисы (Multi-tenant)") {
+    Container(booking_svc, "Booking Service", "Django", "tenant_id в запросах")
+    Container(driver_svc, "Driver Service", "Django", "tenant_id в запросах")
+    Container(payment_svc, "Payment Service", "Django", "tenant_id в запросах")
+}
+
+System_Boundary(data_isolation, "Data Isolation Layer") {
+    ContainerDb(tenant_db_1, "Tenant DB 1", "PostgreSQL", "Большой партнёр")
+    ContainerDb(tenant_db_2, "Tenant DB 2", "PostgreSQL", "Большой партнёр")
+    ContainerDb(shared_db, "Shared DB", "PostgreSQL", "Мелкие партнёры (tenant_id)")
+}
+
+System_Boundary(onboarding, "Onboarding Automation") {
+    Container(onboarding_api, "Onboarding API", "FastAPI", "REST API для онбординга")
+    Container(onboarding_wf, "Onboarding Workflow", "Airflow", "Автоматизация создания tenant")
+}
+
+System_Boundary(monitoring, "Multi-tenant Monitoring") {
+    Container(prometheus, "Prometheus", "Metrics", "Метрики per-tenant")
+    Container(grafana, "Grafana", "Dashboards", "Дашборды per-tenant")
+    Container(quota_mgr, "Quota Manager", "Custom Service", "Лимиты и квоты")
+}
+
+' Users -> API Gateway
+Rel(partner_admin, api_gateway, "HTTPS + JWT")
+Rel(partner_user, api_gateway, "HTTPS + JWT")
+Rel(super_admin, api_gateway, "HTTPS + JWT")
+
+' API Gateway -> IAM
+Rel(api_gateway, keycloak, "Validate token")
+Rel(keycloak, keycloak_db, "Read/Write")
+
+' API Gateway -> Services
+Rel(api_gateway, booking_svc, "Forward + tenant_id")
+Rel(api_gateway, driver_svc, "Forward + tenant_id")
+Rel(api_gateway, payment_svc, "Forward + tenant_id")
+Rel(api_gateway, tenant_service, "Tenant operations")
+
+' Tenant Service
+Rel(tenant_service, tenant_registry, "Read/Write")
+Rel(tenant_service, keycloak, "Create tenant realm")
+
+' Services -> Databases
+Rel(booking_svc, tenant_db_1, "Tenant 1 data")
+Rel(booking_svc, tenant_db_2, "Tenant 2 data")
+Rel(booking_svc, shared_db, "Small tenants (filtered by tenant_id)")
+
+Rel(driver_svc, tenant_db_1, "Tenant 1 data")
+Rel(driver_svc, shared_db, "Small tenants")
+
+Rel(payment_svc, tenant_db_2, "Tenant 2 data")
+Rel(payment_svc, shared_db, "Small tenants")
+
+' Onboarding
+Rel(super_admin, onboarding_api, "Create new tenant")
+Rel(onboarding_api, onboarding_wf, "Trigger workflow")
+Rel(onboarding_wf, tenant_service, "Create tenant")
+Rel(onboarding_wf, keycloak, "Create realm + roles")
+Rel(onboarding_wf, tenant_db_1, "Create schema")
+
+' Monitoring
+Rel(booking_svc, prometheus, "Metrics + tenant_id")
+Rel(driver_svc, prometheus, "Metrics + tenant_id")
+Rel(quota_mgr, prometheus, "Check quotas")
+Rel(prometheus, grafana, "Query")
+
+SHOW_LEGEND()
+
+@enduml
+

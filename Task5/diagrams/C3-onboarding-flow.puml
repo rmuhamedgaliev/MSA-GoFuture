@@ -1,0 +1,57 @@
+@startuml GoFuture_Onboarding_Flow_C3
+!include <C4/C4_Component>
+
+title GoFuture Partner Onboarding Flow (C3)
+
+Person(super_admin, "Super Admin")
+
+System_Boundary(onboarding_system, "Onboarding System") {
+    Component(api, "Onboarding API", "FastAPI", "REST API")
+    Component(workflow, "Airflow DAG", "Python", "Orchestration")
+    
+    Component(tenant_creator, "Tenant Creator", "Python", "Создание tenant")
+    Component(db_provisioner, "DB Provisioner", "Python", "Создание БД/схемы")
+    Component(iam_configurator, "IAM Configurator", "Python", "Настройка Keycloak")
+    Component(config_deployer, "Config Deployer", "Python", "Деплой конфигов")
+    Component(validator, "Validator", "Python", "Проверка готовности")
+}
+
+ContainerDb_Ext(tenant_registry, "Tenant Registry", "PostgreSQL")
+ContainerDb_Ext(tenant_db, "Tenant DB", "PostgreSQL")
+Container_Ext(keycloak, "Keycloak", "IAM")
+Container_Ext(k8s, "Kubernetes", "Infrastructure")
+Container_Ext(notification, "Notification Service", "Email/SMS")
+
+' Step 1: Request
+Rel(super_admin, api, "POST /tenants/create")
+Rel(api, workflow, "Trigger DAG")
+
+' Step 2: Create Tenant
+Rel(workflow, tenant_creator, "Step 1: Create tenant")
+Rel(tenant_creator, tenant_registry, "Insert tenant record")
+
+' Step 3: Provision DB
+Rel(workflow, db_provisioner, "Step 2: Provision DB")
+Rel(db_provisioner, tenant_db, "CREATE SCHEMA/DATABASE")
+
+' Step 4: Configure IAM
+Rel(workflow, iam_configurator, "Step 3: Configure IAM")
+Rel(iam_configurator, keycloak, "Create realm + roles + users")
+
+' Step 5: Deploy Configs
+Rel(workflow, config_deployer, "Step 4: Deploy configs")
+Rel(config_deployer, k8s, "Deploy ConfigMaps/Secrets")
+
+' Step 6: Validate
+Rel(workflow, validator, "Step 5: Validate")
+Rel(validator, tenant_db, "Check connection")
+Rel(validator, keycloak, "Check realm")
+
+' Step 7: Notify
+Rel(workflow, notification, "Step 6: Notify")
+Rel(notification, super_admin, "Email: Tenant ready")
+
+SHOW_LEGEND()
+
+@enduml
+
