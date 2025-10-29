@@ -1,0 +1,32 @@
+@startuml GoFuture_Failover_C2
+!include <C4/C4_Container>
+
+title GoFuture Failover Scenarios (C2)
+
+Person(user, "Пользователь")
+
+System_Boundary(scenario1, "Сценарий 1: Регион Россия упал") {
+    Container(geodns_check, "GeoDNS Health Check", "Route53", "Определяет что Россия down")
+    Container(failover_target, "Failover -> Сингапур", "Region SG", "Принимает трафик России")
+}
+
+System_Boundary(scenario2, "Сценарий 2: Primary DB упала") {
+    Container(patroni, "Patroni", "HA Manager", "Автоматический failover")
+    Container(replica_promote, "Replica -> Primary", "PostgreSQL", "Промоутим реплику")
+}
+
+System_Boundary(scenario3, "Сценарий 3: Kafka кластер упал") {
+    Container(kafka_check, "Kafka Health Check", "Monitoring", "Кластер недоступен")
+    Container(mirror_switch, "MirrorMaker Switch", "Kafka", "Переключаем на другой регион")
+}
+
+Rel(user, geodns_check, "Request")
+Rel(geodns_check, failover_target, "Redirect")
+
+Rel(patroni, replica_promote, "Promote")
+
+Rel(kafka_check, mirror_switch, "Switch consumers")
+
+SHOW_LEGEND()
+
+@enduml

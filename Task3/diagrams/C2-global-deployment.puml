@@ -1,0 +1,105 @@
+@startuml GoFuture_GlobalDeployment_C2
+!include <C4/C4_Container>
+
+AddElementTag("new", $fontColor="#ffffff", $bgColor="#ff6b6b", $borderColor="#ff0000")
+
+title GoFuture Global Multi-Region Deployment (C2)
+
+Person(user_russia, "Пользователь (Россия)")
+Person(user_asia, "Пользователь (Азия)", $tags="new")
+Person(user_latam, "Пользователь (Латам)", $tags="new")
+
+System_Boundary(global_edge, "Global Edge Layer") {
+    Container(geo_dns, "GeoDNS", "Route53", "Маршрутизация по геолокации", $tags="new")
+    Container(waf, "WAF", "Yandex SmartWeb Security", "Защита от атак", $tags="new")
+    Container(ddos_protection, "DDoS Protection", "Qrator", "Защита от DDoS", $tags="new")
+}
+
+System_Boundary(region_russia, "Регион: Россия (Primary)") {
+    Container(lb_ru, "Load Balancer", "Yandex ALB", "Распределение нагрузки")
+    Container(firewall_ru, "Firewall", "Security Groups", "Фильтрация трафика", $tags="new")
+    Container(api_gateway_ru, "API Gateway", "Kong", "Маршрутизация API")
+    Container(services_ru, "Microservices", "Django/FastAPI", "Все сервисы")
+    ContainerDb(db_primary_ru, "Primary DB", "PostgreSQL", "Основная БД")
+    ContainerQueue(kafka_ru, "Kafka", "Kafka", "События")
+}
+
+System_Boundary(region_asia, "Регион: Сингапур") {
+    Container(lb_sg, "Load Balancer", "Yandex ALB", "Распределение нагрузки", $tags="new")
+    Container(firewall_sg, "Firewall", "Security Groups", "Фильтрация трафика", $tags="new")
+    Container(api_gateway_sg, "API Gateway", "Kong", "Маршрутизация API", $tags="new")
+    Container(services_sg, "Microservices", "Django/FastAPI", "Все сервисы", $tags="new")
+    ContainerDb(db_replica_sg, "Read Replica", "PostgreSQL", "Реплика для чтения", $tags="new")
+    ContainerQueue(kafka_sg, "Kafka", "Kafka", "События", $tags="new")
+}
+
+System_Boundary(region_latam, "Регион: Сан-Паулу") {
+    Container(lb_br, "Load Balancer", "Yandex ALB", "Распределение нагрузки", $tags="new")
+    Container(firewall_br, "Firewall", "Security Groups", "Фильтрация трафика", $tags="new")
+    Container(api_gateway_br, "API Gateway", "Kong", "Маршрутизация API", $tags="new")
+    Container(services_br, "Microservices", "Django/FastAPI", "Все сервисы", $tags="new")
+    ContainerDb(db_replica_br, "Read Replica", "PostgreSQL", "Реплика для чтения", $tags="new")
+    ContainerQueue(kafka_br, "Kafka", "Kafka", "События", $tags="new")
+}
+
+System_Boundary(data_replication, "Data Replication") {
+    Container(replication_mgr, "Replication Manager", "Patroni", "Управление репликацией", $tags="new")
+    Container(kafka_mirror, "Kafka MirrorMaker", "Kafka", "Репликация событий", $tags="new")
+}
+
+System_Boundary(monitoring_global, "Global Monitoring") {
+    Container(prometheus_fed, "Prometheus Federation", "Prometheus", "Сбор метрик из всех регионов", $tags="new")
+    Container(grafana_global, "Grafana", "Grafana", "Глобальные дашборды", $tags="new")
+}
+
+' User -> GeoDNS
+Rel(user_russia, geo_dns, "DNS Query")
+Rel(user_asia, geo_dns, "DNS Query")
+Rel(user_latam, geo_dns, "DNS Query")
+
+' Edge Layer
+Rel(geo_dns, waf, "Route")
+Rel(waf, ddos_protection, "Filter")
+Rel(ddos_protection, lb_ru, "Clean Traffic")
+Rel(ddos_protection, lb_sg, "Clean Traffic")
+Rel(ddos_protection, lb_br, "Clean Traffic")
+
+' Потоки в России
+Rel(lb_ru, firewall_ru, "Forward")
+Rel(firewall_ru, api_gateway_ru, "HTTPS")
+Rel(api_gateway_ru, services_ru, "REST")
+Rel(services_ru, db_primary_ru, "Read/Write")
+Rel(services_ru, kafka_ru, "Events")
+
+' Потоки в Сингапуре
+Rel(lb_sg, firewall_sg, "Forward")
+Rel(firewall_sg, api_gateway_sg, "HTTPS")
+Rel(api_gateway_sg, services_sg, "REST")
+Rel(services_sg, db_replica_sg, "Read Only")
+Rel(services_sg, kafka_sg, "Events")
+
+' Потоки в Бразилии
+Rel(lb_br, firewall_br, "Forward")
+Rel(firewall_br, api_gateway_br, "HTTPS")
+Rel(api_gateway_br, services_br, "REST")
+Rel(services_br, db_replica_br, "Read Only")
+Rel(services_br, kafka_br, "Events")
+
+' Replication
+Rel(db_primary_ru, replication_mgr, "Stream")
+Rel(replication_mgr, db_replica_sg, "Async replication")
+Rel(replication_mgr, db_replica_br, "Async replication")
+
+Rel(kafka_ru, kafka_mirror, "Source")
+Rel(kafka_mirror, kafka_sg, "Mirror")
+Rel(kafka_mirror, kafka_br, "Mirror")
+
+' Monitoring
+Rel(services_ru, prometheus_fed, "Metrics")
+Rel(services_sg, prometheus_fed, "Metrics")
+Rel(services_br, prometheus_fed, "Metrics")
+Rel(prometheus_fed, grafana_global, "Query")
+
+SHOW_LEGEND()
+
+@enduml

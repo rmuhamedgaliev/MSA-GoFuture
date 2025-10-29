@@ -1,0 +1,110 @@
+@startuml GoFuture_DataML_Platform_C2
+!include <C4/C4_Container>
+
+title GoFuture Data & ML Platform (C2)
+
+' Data Sources
+System_Boundary(microservices, "Микросервисы") {
+    Container(booking_svc, "Booking Service", "Django", "Заказы")
+    Container(driver_svc, "Driver Service", "Django", "Водители")
+    Container(payment_svc, "Payment Service", "Django", "Платежи")
+    Container(pricing_svc, "Pricing Service", "FastAPI", "Цены")
+}
+
+System_Boundary(data_sources, "Источники данных") {
+    ContainerDb(postgres_dbs, "PostgreSQL", "OLTP", "Базы микросервисов")
+    ContainerQueue(kafka, "Kafka", "Events", "События")
+}
+
+' Data Ingestion
+System_Boundary(ingestion, "Сбор данных") {
+    Container(kafka_connect, "Kafka Connect", "CDC", "Изменения из баз")
+    Container(flink_stream, "Flink", "Stream", "Обработка потока")
+}
+
+' Data Storage
+System_Boundary(storage, "Хранение") {
+    ContainerDb(data_lake, "Data Lake", "S3", "Bronze/Silver/Gold")
+    ContainerDb(dw_clickhouse, "ClickHouse", "DW", "Аналитика")
+    ContainerDb(feature_store, "Feature Store", "Feast", "ML фичи")
+}
+
+' Data Processing
+System_Boundary(processing, "Обработка") {
+    Container(spark, "Spark", "Batch", "ETL")
+    Container(dbt, "dbt", "SQL", "Трансформации")
+}
+
+' ML Platform
+System_Boundary(ml_platform, "ML Platform") {
+    Container(mlflow, "MLflow", "Tracking", "Эксперименты")
+    Container(training, "Training", "K8s + GPU", "Обучение")
+    Container(serving, "Serving", "API", "Предсказания")
+    Container(monitoring, "Monitoring", "Evidently", "Качество моделей")
+}
+
+' BI Layer
+System_Boundary(bi_layer, "BI") {
+    Container(datalens, "DataLens", "Yandex", "Дашборды")
+    Container(grafana, "Grafana", "Metrics", "Мониторинг")
+}
+
+' Data Quality
+System_Boundary(data_quality, "Качество данных") {
+    Container(validation, "Validation", "Great Expectations", "Проверки")
+    Container(lineage, "Lineage", "OpenLineage", "Отслеживание")
+}
+
+' Orchestration
+Container(airflow, "Airflow", "DAGs", "Оркестрация")
+
+' === Relationships ===
+
+' Microservices -> Data Sources
+Rel(booking_svc, postgres_dbs, "Write")
+Rel(driver_svc, postgres_dbs, "Write")
+Rel(payment_svc, postgres_dbs, "Write")
+Rel(pricing_svc, kafka, "Events")
+
+' Data Ingestion
+Rel(postgres_dbs, kafka_connect, "CDC")
+Rel(kafka_connect, kafka, "Changes")
+Rel(kafka, flink_stream, "Consume")
+
+' To Storage
+Rel(kafka, data_lake, "Raw")
+Rel(flink_stream, dw_clickhouse, "Aggregates")
+Rel(kafka_connect, data_lake, "Snapshots")
+
+' Data Processing
+Rel(data_lake, spark, "Read")
+Rel(spark, dw_clickhouse, "Write")
+Rel(dw_clickhouse, dbt, "Transform")
+Rel(dbt, feature_store, "Features")
+
+' ML Platform
+Rel(feature_store, training, "Features")
+Rel(dw_clickhouse, training, "Data")
+Rel(training, mlflow, "Log")
+Rel(mlflow, serving, "Deploy")
+Rel(serving, pricing_svc, "API")
+Rel(serving, monitoring, "Predictions")
+Rel(feature_store, serving, "Features")
+
+' BI
+Rel(dw_clickhouse, datalens, "Query")
+Rel(dw_clickhouse, grafana, "Query")
+
+' Data Quality
+Rel(data_lake, validation, "Check")
+Rel(dw_clickhouse, validation, "Check")
+Rel(spark, lineage, "Track")
+
+' Orchestration
+Rel(airflow, spark, "Schedule")
+Rel(airflow, dbt, "Schedule")
+Rel(airflow, validation, "Run")
+
+SHOW_LEGEND()
+
+@enduml

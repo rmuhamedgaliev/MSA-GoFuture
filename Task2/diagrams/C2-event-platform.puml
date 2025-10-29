@@ -1,0 +1,89 @@
+@startuml GoFuture_EventPlatform_C2
+!include <C4/C4_Container>
+
+title GoFuture Event Platform Architecture (C2)
+
+Person(ops, "DevOps", "Мониторит систему")
+
+System_Boundary(producers, "Event Producers") {
+    Container(booking_svc, "Booking Service", "Django", "Публикует события заказов")
+    Container(driver_svc, "Driver Service", "Django", "Публикует события водителей")
+    Container(payment_svc, "Payment Service", "Django", "Публикует события платежей")
+    Container(pricing_svc, "Pricing Service", "Django", "Публикует события цен")
+}
+
+System_Boundary(kafka_platform, "Kafka Event Platform") {
+    ContainerQueue(kafka_brokers, "Kafka Cluster", "Apache Kafka", "3 брокера, replication factor 3")
+    
+    Container(schema_registry, "Schema Registry", "Confluent", "Управление схемами Avro")
+    
+    System_Boundary(topics, "Kafka Topics") {
+        ContainerQueue(booking_topic, "booking-events", "Topic", "Партиции по region_id")
+        ContainerQueue(driver_topic, "driver-events", "Topic", "Партиции по region_id")
+        ContainerQueue(payment_topic, "payment-events", "Topic", "Партиции по user_id")
+        ContainerQueue(pricing_topic, "pricing-events", "Topic", "Партиции по region_id")
+        ContainerQueue(saga_topic, "booking-saga", "Topic", "Партиции по booking_id")
+    }
+}
+
+System_Boundary(consumers, "Event Consumers") {
+    Container(notification_svc, "Notification Service", "FastAPI", "Подписан на все события")
+    Container(analytics_svc, "Analytics Service", "Django", "Подписан на все события")
+    Container(fraud_svc, "Fraud Service", "FastAPI", "Подписан на payment/booking")
+}
+
+System_Boundary(stream_processing, "Stream Processing") {
+    Container(flink_jobs, "Flink Jobs", "Apache Flink", "Real-time агрегации")
+    ContainerDb(clickhouse, "ClickHouse", "ClickHouse", "Аналитическое хранилище")
+}
+
+System_Boundary(monitoring, "Monitoring & Observability") {
+    Container(prometheus, "Prometheus", "Metrics", "Kafka, producers, consumers метрики")
+    Container(grafana, "Grafana", "Dashboards", "Дашборды событий")
+    Container(kafka_exporter, "Kafka Exporter", "Exporter", "Экспорт метрик Kafka")
+}
+
+' Producers -> Schema Registry
+Rel(booking_svc, schema_registry, "Validate schema")
+Rel(driver_svc, schema_registry, "Validate schema")
+Rel(payment_svc, schema_registry, "Validate schema")
+
+' Producers -> Kafka
+Rel(booking_svc, kafka_brokers, "Publish", "BookingCreated, BookingCompleted")
+Rel(driver_svc, kafka_brokers, "Publish", "DriverLocationUpdated")
+Rel(payment_svc, kafka_brokers, "Publish", "PaymentCompleted")
+Rel(pricing_svc, kafka_brokers, "Publish", "PriceChanged")
+
+' Kafka -> Topics (логическое)
+Rel(kafka_brokers, booking_topic, "Route")
+Rel(kafka_brokers, driver_topic, "Route")
+Rel(kafka_brokers, payment_topic, "Route")
+Rel(kafka_brokers, saga_topic, "Route")
+
+' Kafka -> Consumers
+Rel(kafka_brokers, notification_svc, "Subscribe", "Consumer group: notifications")
+Rel(kafka_brokers, analytics_svc, "Subscribe", "Consumer group: analytics")
+Rel(kafka_brokers, fraud_svc, "Subscribe", "Consumer group: fraud")
+
+' Stream Processing
+Rel(kafka_brokers, flink_jobs, "Stream", "All events")
+Rel(flink_jobs, clickhouse, "Write aggregates")
+
+' Saga orchestration
+Rel(booking_svc, saga_topic, "Saga commands")
+Rel(saga_topic, payment_svc, "Process payment")
+Rel(saga_topic, driver_svc, "Assign driver")
+
+' Monitoring
+Rel(kafka_brokers, kafka_exporter, "Expose metrics")
+Rel(kafka_exporter, prometheus, "Scrape")
+Rel(booking_svc, prometheus, "Metrics")
+Rel(driver_svc, prometheus, "Metrics")
+Rel(notification_svc, prometheus, "Metrics")
+Rel(prometheus, grafana, "Query")
+Rel(ops, grafana, "Monitor")
+
+SHOW_LEGEND()
+
+@enduml
+

@@ -1,0 +1,112 @@
+@startuml GoFuture_ToBeArchitecture_C2
+!include <C4/C4_Container>
+
+title GoFuture To-Be Architecture (C2) - Целевая микросервисная архитектура
+
+Person(passenger, "Пассажир", "Заказывает поездки")
+Person(driver, "Водитель", "Принимает заказы")
+Person(admin, "Администратор", "Управляет системой")
+
+System_Boundary(client_apps, "Клиентские приложения") {
+    Container(passenger_app, "Passenger App", "iOS/Android", "Мобильное приложение для пассажиров")
+    Container(driver_app, "Driver App", "iOS/Android", "Мобильное приложение для водителей")
+    Container(admin_panel, "Admin Panel", "Django Admin", "Панель администратора")
+}
+
+Container(gateway, "API Gateway", "Kong", "Маршрутизация запросов")
+
+System_Boundary(microservices, "Микросервисы") {
+    Container(booking, "Booking Service", "Django", "Управление заказами")
+    Container(drivers_svc, "Driver Service", "Django", "Управление водителями")
+    Container(pricing, "Pricing Service", "Django", "Ценообразование")
+    Container(payments, "Payment Service", "Django", "Обработка платежей")
+    Container(payouts, "Payout Service", "Django", "Выплаты водителям")
+    Container(geography, "Geography Service", "FastAPI", "Геопоиск и маршруты")
+    Container(notifications, "Notification Service", "FastAPI", "Push-уведомления")
+    Container(fraud, "Fraud Service", "FastAPI", "Антифрод")
+}
+
+System_Boundary(legacy, "Legacy System") {
+    Container(monolith, "Django Monolith", "Django", "Монолит в режиме fallback")
+    ContainerDb(legacy_db, "Legacy DB", "PostgreSQL", "БД для Dual-Write")
+}
+
+ContainerDb(redis, "Redis", "Redis", "Кэш")
+ContainerDb(elastic, "Elasticsearch", "Elasticsearch", "Поиск")
+ContainerQueue(kafka, "Kafka", "Apache Kafka", "Event Streaming")
+ContainerQueue(rabbitmq, "RabbitMQ", "Message Broker", "Celery очередь")
+Container(celery, "Celery", "Python", "Фоновые задачи")
+
+System_Boundary(analytics, "Аналитика") {
+    Container(flink, "Flink", "Apache Flink", "Stream Processing")
+    ContainerDb(clickhouse, "ClickHouse", "ClickHouse", "OLAP")
+    Container(datalens, "DataLens", "BI", "Дашборды")
+}
+
+System_Ext(yandex_pay, "Яндекс.Пэй", "Платежи")
+System_Ext(yandex_maps, "Яндекс.Карты", "Геосервисы")
+System_Ext(push_services, "FCM/APNS", "Push-уведомления")
+System_Ext(banks, "Банки", "Выплаты")
+
+' Пользователи -> Клиенты
+Rel(passenger, passenger_app, "Использует")
+Rel(driver, driver_app, "Использует")
+Rel(admin, admin_panel, "Использует")
+
+' Клиенты -> Gateway
+Rel(passenger_app, gateway, "HTTPS")
+Rel(driver_app, gateway, "HTTPS")
+Rel(admin_panel, gateway, "HTTPS")
+
+' Gateway -> Сервисы
+Rel(gateway, booking, "REST")
+Rel(gateway, drivers_svc, "REST")
+Rel(gateway, payments, "REST")
+
+' Gateway -> Монолит (Strangler Fig)
+Rel(gateway, monolith, "REST (fallback)", "Strangler Fig Pattern")
+
+' Синхронные вызовы
+Rel(booking, pricing, "Запрос цены")
+Rel(booking, drivers_svc, "Назначение водителя")
+Rel(booking, geography, "Маршрут")
+Rel(booking, payments, "Платёж")
+Rel(payments, fraud, "Проверка")
+
+' Kafka события
+Rel(booking, kafka, "Events")
+Rel(drivers_svc, kafka, "Events")
+Rel(payments, kafka, "Events")
+Rel(kafka, notifications, "Subscribe")
+Rel(kafka, flink, "Stream")
+
+' Dual-Write (миграция)
+Rel(booking, legacy_db, "Dual-Write")
+Rel(drivers_svc, legacy_db, "Dual-Write")
+Rel(monolith, legacy_db, "Read/Write")
+
+' Celery
+Rel(booking, celery, "Async tasks")
+Rel(celery, rabbitmq, "AMQP")
+
+' Кэш
+Rel(pricing, redis, "Cache")
+Rel(drivers_svc, redis, "Cache")
+
+' Поиск
+Rel(geography, elastic, "Geo-search")
+
+' Внешние интеграции
+Rel(payments, yandex_pay, "HTTPS")
+Rel(payouts, banks, "HTTPS")
+Rel(geography, yandex_maps, "HTTPS")
+Rel(notifications, push_services, "HTTPS")
+
+' Аналитика
+Rel(flink, clickhouse, "Write")
+Rel(clickhouse, datalens, "SQL")
+Rel(datalens, admin, "Дашборды")
+
+SHOW_LEGEND()
+
+@enduml
